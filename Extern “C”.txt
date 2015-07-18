@@ -1,0 +1,716 @@
+extern "C"的用法解析
+
+1.引言
+　　C++语言的创建初衷是“a better C”，但是这并不意味着C++中类似C语言的全局变量和函数所采用的编译和连接方式与C语言完全相同。作为一种欲与C兼容的语言，
+C++保留了一部分过程式语言的特点（被世人称为“不彻底地面向对象”），因而它可以定义不属于任何类的全局变量和函数。但是，C++毕竟是一种面向对象的程序设计语言
+，为了支持函数的重载，C++对全局函数的处理方式与C有明显的不同。
+ 
+2.从标准头文件说起
+　　某企业曾经给出如下的一道面试题：
+　　面试题
+　　为什么标准头文件都有类似以下的结构？
+    #ifndef __INCvxWorksh
+    #define __INCvxWorksh
+    #ifdef __cplusplus
+    extern "C" {
+    #endif
+    /*...*/
+    #ifdef __cplusplus
+    }
+    #endif
+    #endif /* __INCvxWorksh */
+　　分析
+　　显然，头文件中的编译宏“#ifndef __INCvxWorksh、#define __INCvxWorksh、#endif” 的作用是防止该头文件被重复引用。
+　　那么
+#ifdef __cplusplus
+extern "C" {
+　#endif
+　#ifdef __cplusplus
+}
+#endif
+　　的作用又是什么呢？我们将在下文一一道来。
+ 
+3.深层揭密extern "C"
+　　extern "C" 包含双重含义，从字面上即可得到：首先，被它修饰的目标是“extern”的；其次，被它修饰的目标是“C”的。让我们来详细解读这两重含义。
+　　被extern "C"限定的函数或变量是extern类型的；
+　 extern是C/C++语言中表明函数和全局变量作用范围（可见性）的关键字，该关键字告诉编译器，其声明的函数和变量可以在本模块或其它模块中使用。记住，下列语句：
+　　extern int a;
+　　仅仅是一个变量的声明，其并不是在定义变量a，并未为a分配内存空间。变量a在所有模块中作为一种全局变量只能被定义一次，否则会出现连接错误。
+　　通常，在模块的头文件中对本模块提供给其它模块引用的函数和全局变量以关键字extern声明。例如，如果模块B欲引用该模块A中定义的全局变量和函数时只需包含模块A的头文件即可。这样，模块B中调用模块A中的函数时，在编译阶段，模块B虽然找不到该函数，但是并不会报错；它会在连接阶段中从模块A编译生成的目标代码中找到此函数。
+　　与extern对应的关键字是static，被它修饰的全局变量和函数只能在本模块中使用。因此，一个函数或变量只可能被本模块使用时，其不可能被extern “C”修饰。
+　　被extern "C"修饰的变量和函数是按照C语言方式编译和连接的；
+　　未加extern “C”声明时的编译方式
+　　首先看看C++中对类似C的函数是怎样编译的。
+　　作为一种面向对象的语言，C++支持函数重载，而过程式语言C则不支持。函数被C++编译后在符号库中的名字与C语言的不同。例如，假设某个函数的原型为：
+void foo( int x, int y );
+　　该函数被C编译器编译后在符号库中的名字为_foo，而C++编译器则会产生像_foo_int_int之类的名字（不同的编译器可能生成的名字不同，但是都采用了相同的机制，生成的新名字称为“mangled name”）。
+　　_foo_int_int这样的名字包含了函数名、函数参数数量及类型信息，C++就是靠这种机制来实现函数重载的。例如，在C++中，函数void foo( int x, int y )与void foo( int x, float y )编译生成的符号是不相同的，后者为_foo_int_float。
+　　同样地，C++中的变量除支持局部变量外，还支持类成员变量和全局变量。用户所编写程序的类成员变量可能与全局变量同名，我们以"."来区分。而本质上，编译器在进行编译时，与函数的处理相似，也为类中的变量取了一个独一无二的名字，这个名字与用户程序中同名的全局变量名字不同。
+　　未加extern "C"声明时的连接方式
+　　假设在C++中，模块A的头文件如下：
+// 模块A头文件　moduleA.h
+#ifndef MODULE_A_H
+#define MODULE_A_H
+int foo( int x, int y );
+#endif
+　　在模块B中引用该函数：
+// 模块B实现文件　moduleB.cpp
+#include "moduleA.h"
+foo(2,3);
+　　实际上，在连接阶段，连接器会从模块A生成的目标文件moduleA.obj中寻找_foo_int_int这样的符号！
+　　加extern "C"声明后的编译和连接方式
+　　加extern "C"声明后，模块A的头文件变为：
+// 模块A头文件　moduleA.h
+#ifndef MODULE_A_H
+#define MODULE_A_H
+extern "C" int foo( int x, int y );
+#endif
+　　在模块B的实现文件中仍然调用foo( 2,3 )，其结果是：
+　　（1）模块A编译生成foo的目标代码时，没有对其名字进行特殊处理，采用了C语言的方式；
+　　（2）连接器在为模块B的目标代码寻找foo(2,3)调用时，寻找的是未经修改的符号名_foo。
+　　如果在模块A中函数声明了foo为extern "C"类型，而模块B中包含的是extern int foo( int x, int y ) ，则模块B找不到模块A中的函数；反之亦然。
+　　所以，可以用一句话概括extern “C”这个声明的真实目的（任何语言中的任何语法特性的诞生都不是随意而为的，来源于真实世界的需求驱动。我们在思考问题时，不能只停留在这个语言是怎么做的，还要问一问它为什么要这么做，动机是什么，这样我们可以更深入地理解许多问题）：
+　　实现C++与C及其它语言的混合编程。
+明白了C++中extern "C"的设立动机，我们下面来具体分析extern "C"通常的使用技巧。
+ 
+　　4.extern "C"的惯用法
+　　（1）在C++中引用C语言中的函数和变量，在包含C语言头文件（假设为cExample.h）时，需进行下列处理：
+extern "C"
+{
+#include "cExample.h"
+}
+　　而在C语言的头文件中，对其外部函数只能指定为extern类型，C语言中不支持extern "C"声明，在.c文件中包含了extern "C"时会出现编译语法错误。
+　　笔者编写的C++引用C函数例子工程中包含的三个文件的源代码如下：
+/* c语言头文件：cExample.h */
+#ifndef C_EXAMPLE_H
+#define C_EXAMPLE_H
+extern int add(int x,int y);     //注:写成extern "C" int add(int , int ); 也可以
+#endif
+/* c语言实现文件：cExample.c */
+#include "cExample.h"
+int add( int x, int y )
+{
+　return x + y;
+}
+// c++实现文件，调用add：cppFile.cpp
+extern "C"
+{
+　#include "cExample.h"        //注：此处不妥，如果这样编译通不过，换成 extern "C" int add(int , int ); 可以通过
+}
+int main(int argc, char* argv[])
+{
+　add(2,3);
+　return 0;
+}
+　　如果C++调用一个C语言编写的.DLL时，当包括.DLL的头文件或声明接口函数时，应加extern "C" {　}。
+　　（2）在C中引用C++语言中的函数和变量时，C++的头文件需添加extern "C"，但是在C语言中不能直接引用声明了extern "C"的该头文件，应该仅将C文件中将C++中定义的extern "C"函数声明为extern类型。
+　　笔者编写的C引用C++函数例子工程中包含的三个文件的源代码如下：
+//C++头文件 cppExample.h
+#ifndef CPP_EXAMPLE_H
+#define CPP_EXAMPLE_H
+extern "C" int add( int x, int y );
+#endif
+//C++实现文件 cppExample.cpp
+#include "cppExample.h"
+int add( int x, int y )
+{
+　return x + y;
+}
+/* C实现文件 cFile.c
+/* 这样会编译出错：#include "cExample.h" */
+extern int add( int x, int y );
+int main( int argc, char* argv[] )
+{
+　add( 2, 3 );
+　return 0;
+}
+　　如果深入理解了第3节中所阐述的extern "C"在编译和连接阶段发挥的作用，就能真正理解本节所阐述的从C++引用C函数和C引用C++函数的惯用法。对第4节给出的示例代码，需要特别留意各个细节。
+____________________________________________________________________________________________
+    extern "C"的主要作用就是为了能够正确实现C++代码调用其他C语言代码。加上extern "C"后，会指示编译器这部分代码按C语言的进行编译，而不是C++的。由于C++支持函数重载，因此编译器编译函数的过程中会将函数的参数类型也加到编译后的代码中，而不仅仅是函数名；而C语言并不支持函数重载，因此编译C语言代码的函数时不会带上函数的参数类型，一般之包括函数名。
+
+     这个功能十分有用处，因为在C++出现以前，很多代码都是C语言写的，而且很底层的库也是C语言写的，为了更好的支持原来的C代码和已经写好的C语言库，需要在C++中尽可能的支持C，而extern "C"就是其中的一个策略。
+
+这个功能主要用在下面的情况：
+
+1、C++代码调用C语言代码
+
+2、在C++的头文件中使用
+
+3、在多个人协同开发时，可能有的人比较擅长C语言，而有的人擅长C++，这样的情况下也会有用到
+
+给出一个我设计的例子：
+
+moduleA、moduleB两个模块，B调用A中的代码，其中A是用C语言实现的，而B是利用C++实现的，下面给出一种实现方法：
+
+//moduleA头文件
+
+#ifndef __MODULE_A_H //对于模块A来说，这个宏是为了防止头文件的重复引用
+
+#define __MODULE_A_H
+
+int fun(int, int);
+
+#endif
+
+//moduleA实现文件moduleA.C //模块A的实现部分并没有改变
+
+#include"moduleA"
+
+int fun(int a, int b)
+
+{
+
+return a+b;
+
+}
+
+//moduleB头文件
+
+#idndef __MODULE_B_H //很明显这一部分也是为了防止重复引用
+
+#define __MODULE_B_H
+
+#ifdef __cplusplus //而这一部分就是告诉编译器，如果定义了__cplusplus(即如果是cpp文件， extern "C"{ //因为cpp文件默认定义了该宏),则采用C语言方式进行编译
+
+#include"moduleA.h"
+
+#endif
+
+… //其他代码
+
+#ifdef __cplusplus
+
+}
+
+#endif
+
+#endif
+
+//moduleB实现文件 moduleB.cpp //B模块的实现也没有改变，只是头文件的设计变化了
+
+#include"moduleB.h"
+
+int main()
+
+{
+
+cout<<fun(2,3)<<endl;
+
+}
+
+下面是详细的介绍：
+
+由于C、C++编译器对函数的编译处理是不完全相同的，尤其对于C++来说，支持函数的重载，编译后的函数一般是以函数名和形参类型来命名的。
+
+例如函数void fun(int, int)，编译后的可能是（不同编译器结果不同）_fun_int_int(不同编译器可能不同，但都采用了类似的机制，用函数名和参数类型来命名编译后的函数名)；而C语言没有类似的重载机制，一般是利用函数名来指明编译后的函数名的，对应上面的函数可能会是_fun这样的名字。
+
+看下面的一个面试题：为什么标准头文件都有类似的结构？
+
+#ifndef __INCvxWorksh /*防止该头文件被重复引用*/
+
+#define __INCvxWorksh
+
+#ifdef __cplusplus             //告诉编译器，这部分代码按C语言的格式进行编译，而不是C++的
+
+extern "C"{
+
+#endif
+
+/*…*/
+
+#ifdef __cplusplus
+
+}
+
+#endif
+
+#endif /*end of __INCvxWorksh*/
+
+分析：
+
+显然，头文件中编译宏"#ifndef __INCvxWorksh 、#define __INCvxWorksh、#endif"（即上面代码中的蓝色部分）的作用是为了防止该头文件被重复引用
+那么
+#ifdef __cplusplus (其中__cplusplus是cpp中自定义的一个宏！！！)
+
+extern "C"{
+
+#endif
+
+#ifdef __cplusplus
+
+}
+
+#endif
+
+的作用是什么呢？
+
+extern "C"包含双重含义，从字面上可以知道，首先，被它修饰的目标是"extern"的；其次，被它修饰的目标代码是"C"的。
+
+被extern "C"限定的函数或变量是extern类型的
+extern是C/C++语言中表明函数和全局变量的作用范围的关键字，该关键字告诉编译器，其申明的函数和变量可以在本模块或其他模块中使用。
+
+记住，下面的语句：
+
+extern int a; 仅仅是一个变量的声明，其并不是在定义变量a，并未为a分配空间。变量a在所有模块中作为一种全局变量只能被定义一次，否则会出错。
+
+通常来说，在模块的头文件中对本模块提供给其他模块引用的函数和全局变量以关键字extern生命。例如，如果模块B要引用模块A中定义的全局变量和函数时只需包含模块A的头文件即可。这样模块B中调用模块A中的函数时，在编译阶段，模块B虽然找不到该函数，但并不会报错；它会在链接阶段从模块A编译生成的目标代码中找到该函数。
+
+extern对应的关键字是static，static表明变量或者函数只能在本模块中使用，因此，被static修饰的变量或者函数不可能被extern C修饰。
+
+被extern "C"修饰的变量和函数是按照C语言方式进行编译和链接的：这点很重要！！！！
+上面也提到过，由于C++支持函数重载，而C语言不支持，因此函数被C++编译后在符号库中的名字是与C语言不同的；C++编译后的函数需要加上参数的类型才能唯一标定重载后的函数，而加上extern "C"后，是为了向编译器指明这段代码按照C语言的方式进行编译
+
+未加extern "C"声明时的链接方式：
+
+//模块A头文件 moduleA.h
+
+#idndef _MODULE_A_H
+
+#define _MODULE_A_H
+
+int foo(int x, int y);
+
+#endif
+
+在模块B中调用该函数：
+
+//模块B实现文件 moduleB.cpp
+
+#include"moduleA.h"
+
+foo(2,3);
+
+实际上，在链接阶段，连接器会从模块A生成的目标文件moduleA.obj中找_foo_int_int这样的符号！！！，显然这是不可能找到的，因为foo()函数被编译成了_foo的符号，因此会出现链接错误。
+
+常见的做法可以参考下面的一个实现：
+
+moduleA、moduleB两个模块，B调用A中的代码，其中A是用C语言实现的，而B是利用C++实现的，下面给出一种实现方法：
+
+//moduleA头文件
+
+#ifndef __MODULE_A_H //对于模块A来说，这个宏是为了防止头文件的重复引用
+
+#define __MODULE_A_H
+
+int fun(int, int);
+
+#endif
+
+//moduleA实现文件moduleA.C //模块A的实现部分并没有改变
+
+#include"moduleA"
+
+int fun(int a, int b)
+
+{
+
+return a+b;
+
+}
+
+//moduleB头文件
+
+#idndef __MODULE_B_H //很明显这一部分也是为了防止重复引用
+
+#define __MODULE_B_H
+
+#ifdef __cplusplus //而这一部分就是告诉编译器，如果定义了__cplusplus(即如果是cpp文件， extern "C"{ //因为cpp文件默认定义了该宏),则采用C语言方式进行编译
+
+#include"moduleA.h"
+
+#endif
+
+… //其他代码
+
+#ifdef __cplusplus
+
+}
+
+#endif
+
+#endif
+
+//moduleB实现文件 moduleB.cpp //B模块的实现也没有改变，只是头文件的设计变化了
+
+#include"moduleB.h"
+
+int main()
+
+{
+
+cout<<fun(2,3)<<endl;
+
+}
+
+extern "C"的使用要点
+
+1. 可以是单一语句
+
+    extern "C" double sqrt(double);
+
+2. 可以是复合语句, 相当于复合语句中的声明都加了extern "C"
+
+    extern "C"
+
+   {
+
+      double sqrt(double);
+
+      int min(int, int);
+
+  }
+
+3.可以包含头文件，相当于头文件中的声明都加了extern "C"
+
+   extern "C"
+
+  {
+
+    ＃i nclude <cmath>
+
+  }
+
+4. 不可以将extern "C" 添加在函数内部
+
+5. 如果函数有多个声明，可以都加extern "C", 也可以只出现在第一次声明中，后面的声明会接受第一个链接指示符的规则。
+
+6. 除extern "C", 还有extern "FORTRAN" 等。
+###########################################################################
+C++项目中的extern "C" {}
+
+
+在用C++的项目源码中，经常会不可避免的会看到下面的代码：
+#ifdef __cplusplus
+extern "C" {
+#endif
+ 
+/*...*/
+ 
+#ifdef __cplusplus
+}
+#endif
+它到底有什么用呢，你知道吗？而且这样的问题经常会出现在面试or笔试中。下面我就从以下几个方面来介绍它：
+
+1、#ifdef _cplusplus/#endif _cplusplus及发散
+2、extern "C"
+2.1、extern关键字
+2.2、"C"
+2.3、小结extern "C"
+3、C和C++互相调用
+3.1、C++的编译和连接
+3.2、C的编译和连接
+3.3、C++中调用C的代码
+3.4、C中调用C++的代码
+4、C和C++混合调用特别之处函数指针
+1、#ifdef _cplusplus/#endif _cplusplus及发散
+
+在介绍extern "C"之前，我们来看下#ifdef _cplusplus/#endif _cplusplus的作用。很明显#ifdef/#endif、#ifndef/#endif用于条件编译，#ifdef _cplusplus/#endif _cplusplus——表示如果定义了宏_cplusplus，就执行#ifdef/#endif之间的语句，否则就不执行。
+
+在这里为什么需要#ifdef _cplusplus/#endif _cplusplus呢？因为C语言中不支持extern "C"声明，如果你明白extern "C"的作用就知道在C中也没有必要这样做，这就是条件编译的作用！在.c文件中包含了extern "C"时会出现编译时错误。
+
+既然说到了条件编译，我就介绍它的一个重要应用——避免重复包含头文件。还记得腾讯笔试就考过这个题目，给出类似下面的代码（下面是我最近在研究的一个开源web服务器——Mongoose的头文件mongoose.h中的一段代码）：
+
+#ifndef MONGOOSE_HEADER_INCLUDED
+#define    MONGOOSE_HEADER_INCLUDED
+ 
+#ifdef __cplusplus
+extern "C" {
+#endif /* __cplusplus */
+ 
+/*.................................
+ * do something here
+ *.................................
+ */
+ 
+#ifdef __cplusplus
+}
+#endif /* __cplusplus */
+ 
+#endif /* MONGOOSE_HEADER_INCLUDED */
+然后叫你说明上面宏#ifndef/#endif的作用？为了解释一个问题，我们先来看两个事实：
+
+这个头文件mongoose.h可能在项目中被多个源文件包含（#include "mongoose.h"），而对于一个大型项目来说，这些冗余可能导致错误，因为一个头文件包含类定义或inline函数，在一个源文件中mongoose.h可能会被#include两次（如，a.h头文件包含了mongoose.h，而在b.c文件中#include a.h和mongoose.h）——这就会出错（在同一个源文件中一个结构体、类等被定义了两次）。
+从逻辑观点和减少编译时间上，都要求去除这些冗余。然而让程序员去分析和去掉这些冗余，不仅枯燥且不太实际，最重要的是有时候又需要这种冗余来保证各个模块的独立。
+为了解决这个问题，上面代码中的
+
+#ifndef MONGOOSE_HEADER_INCLUDED 
+#define    MONGOOSE_HEADER_INCLUDED 
+/*……………………………*/ 
+#endif /* MONGOOSE_HEADER_INCLUDED */
+
+就起作用了。如果定义了MONGOOSE_HEADER_INCLUDED，#ifndef/#endif之间的内容就被忽略掉。因此，编译时第一次看到mongoose.h头文件，它的内容会被读取且给定MONGOOSE_HEADER_INCLUDED一个值。之后再次看到mongoose.h头文件时，MONGOOSE_HEADER_INCLUDED就已经定义了，mongoose.h的内容就不会再次被读取了。
+
+2、extern "C"
+
+首先从字面上分析extern "C"，它由两部分组成——extern关键字、"C"。下面我就从这两个方面来解读extern "C"的含义。
+
+2.1、extern关键字
+
+在一个项目中必须保证函数、变量、枚举等在所有的源文件中保持一致，除非你指定定义为局部的。首先来一个例子：
+
+//file1.c:
+    int x=1;
+    int f(){do something here}
+//file2.c:
+    extern int x;
+    int f();
+    void g(){x=f();}
+在file2.c中g()使用的x和f()是定义在file1.c中的。extern关键字表明file2.c中x，仅仅是一个变量的声明，其并不是在定义变量x，并未为x分配内存空间。变量x在所有模块中作为一种全局变量只能被定义一次，否则会出现连接错误。但是可以声明多次，且声明必须保证类型一致，如：
+
+//file1.c:
+    int x=1;
+    int b=1;
+    extern c;
+//file2.c:
+    int x;// x equals to default of int type 0
+    int f();
+    extern double b;
+    extern int c;
+在这段代码中存在着这样的三个错误：
+
+x被定义了两次
+b两次被声明为不同的类型
+c被声明了两次，但却没有定义
+回到extern关键字，extern是C/C++语言中表明函数和全局变量作用范围（可见性）的关键字，该关键字告诉编译器，其声明的函数和变量可以在本模块或其它模块中使用。通常，在模块的头文件中对本模块提供给其它模块引用的函数和全局变量以关键字extern声明。例如，如果模块B欲引用该模块A中定义的全局变量和函数时只需包含模块A的头文件即可。这样，模块B中调用模块A中的函数时，在编译阶段，模块B虽然找不到该函数，但是并不会报错；它会在连接阶段中从模块A编译生成的目标代码中找到此函数。
+
+与extern对应的关键字是 static，被它修饰的全局变量和函数只能在本模块中使用。因此，一个函数或变量只可能被本模块使用时，其不可能被extern “C”修饰。
+
+2.2、"C"
+
+典型的，一个C++程序包含其它语言编写的部分代码。类似的，C++编写的代码片段可能被使用在其它语言编写的代码中。不同语言编写的代码互相调用是困难的，甚至是同一种编写的代码但不同的编译器编译的代码。例如，不同语言和同种语言的不同实现可能会在注册变量保持参数和参数在栈上的布局，这个方面不一样。
+
+为了使它们遵守统一规则，可以使用extern指定一个编译和连接规约。例如，声明C和C++标准库函数strcyp()，并指定它应该根据C的编译和连接规约来链接：
+
+1
+extern "C" char* strcpy(char*,const char*);
+注意它与下面的声明的不同之处：
+
+1
+extern char* strcpy(char*,const char*);
+下面的这个声明仅表示在连接的时候调用strcpy()。
+
+extern "C"指令非常有用，因为C和C++的近亲关系。注意：extern "C"指令中的C，表示的一种编译和连接规约，而不是一种语言。C表示符合C语言的编译和连接规约的任何语言，如Fortran、assembler等。
+
+还有要说明的是，extern "C"指令仅指定编译和连接规约，但不影响语义。例如在函数声明中，指定了extern "C"，仍然要遵守C++的类型检测、参数转换规则。
+
+再看下面的一个例子，为了声明一个变量而不是定义一个变量，你必须在声明时指定extern关键字，但是当你又加上了"C"，它不会改变语义，但是会改变它的编译和连接方式。
+
+如果你有很多语言要加上extern "C"，你可以将它们放到extern "C"{ }中。
+
+2.3、小结extern "C"
+
+通过上面两节的分析，我们知道extern "C"的真实目的是实现类C和C++的混合编程。在C++源文件中的语句前面加上extern "C"，表明它按照类C的编译和连接规约来编译和连接，而不是C++的编译的连接规约。这样在类C的代码中就可以调用C++的函数or变量等。（注：我在这里所说的类C，代表的是跟C语言的编译和连接方式一致的所有语言）
+
+3、C和C++互相调用
+
+我们既然知道extern "C"是实现的类C和C++的混合编程。下面我们就分别介绍如何在C++中调用C的代码、C中调用C++的代码。首先要明白C和C++互相调用，你得知道它们之间的编译和连接差异，及如何利用extern "C"来实现相互调用。
+
+3.1、C++的编译和连接
+
+C++是一个面向对象语言（虽不是纯粹的面向对象语言），它支持函数的重载，重载这个特性给我们带来了很大的便利。为了支持函数重载的这个特性，C++编译器实际上将下面这些重载函数：
+
+1
+2
+3
+4
+void print(int i);
+void print(char c);
+void print(float f);
+void print(char* s);
+编译为：
+
+1
+2
+3
+4
+_print_int
+_print_char
+_print_float
+_pirnt_string
+这样的函数名，来唯一标识每个函数。注：不同的编译器实现可能不一样，但是都是利用这种机制。所以当连接是调用print(3)时，它会去查找_print_int(3)这样的函数。下面说个题外话，正是因为这点，重载被认为不是多态，多态是运行时动态绑定（“一种接口多种实现”），如果硬要认为重载是多态，它顶多是编译时“多态”。
+
+C++中的变量，编译也类似，如全局变量可能编译g_xx，类变量编译为c_xx等。连接是也是按照这种机制去查找相应的变量。
+
+3.2、C的编译和连接
+
+C语言中并没有重载和类这些特性，故并不像C++那样print(int i)，会被编译为_print_int，而是直接编译为_print等。因此如果直接在C++中调用C的函数会失败，因为连接是调用C中的print(3)时，它会去找_print_int(3)。因此extern "C"的作用就体现出来了。
+
+3.3、C++中调用C的代码
+
+假设一个C的头文件cHeader.h中包含一个函数print(int i)，为了在C++中能够调用它，必须要加上extern关键字（原因在extern关键字那节已经介绍）。它的代码如下：
+
+1
+2
+3
+4
+5
+6
+#ifndef C_HEADER
+#define C_HEADER
+ 
+extern void print(int i);
+ 
+#endif C_HEADER
+相对应的实现文件为cHeader.c的代码为：
+
+1
+2
+3
+4
+5
+6
+#include <stdio.h>
+#include "cHeader.h"
+void print(int i)
+{
+    printf("cHeader %d\n",i);
+}
+现在C++的代码文件C++.cpp中引用C中的print(int i)函数：
+
+1
+2
+3
+4
+5
+6
+7
+8
+9
+extern "C"{
+#include "cHeader.h"
+}
+ 
+int main(int argc,char** argv)
+{
+    print(3);
+    return 0;
+}
+执行程序输出：
+
+image 
+
+3.4、C中调用C++的代码
+
+现在换成在C中调用C++的代码，这与在C++中调用C的代码有所不同。如下在cppHeader.h头文件中定义了下面的代码：
+
+1
+2
+3
+4
+5
+6
+#ifndef CPP_HEADER
+#define CPP_HEADER
+ 
+extern "C" void print(int i);
+ 
+#endif CPP_HEADER
+相应的实现文件cppHeader.cpp文件中代码如下：
+
+1
+2
+3
+4
+5
+6
+7
+8
+#include "cppHeader.h"
+ 
+#include <iostream>
+using namespace std;
+void print(int i)
+{
+    cout<<"cppHeader "<<i<<endl;
+}
+在C的代码文件c.c中调用print函数：
+
+1
+2
+3
+4
+5
+6
+extern void print(int i);
+int main(int argc,char** argv)
+{
+    print(3);
+    return 0;
+}
+注意在C的代码文件中直接#include "cppHeader.h"头文件，编译出错。而且如果不加extern int print(int i)编译也会出错。
+
+4、C和C++混合调用特别之处函数指针
+
+当我们C和C++混合编程时，有时候会用一种语言定义函数指针，而在应用中将函数指针指向另一中语言定义的函数。如果C和C++共享同一中编译和连接、函数调用机制，这样做是可以的。然而，这样的通用机制，通常不然假定它存在，因此我们必须小心地确保函数以期望的方式调用。
+
+而且当指定一个函数指针的编译和连接方式时，函数的所有类型，包括函数名、函数引入的变量也按照指定的方式编译和连接。如下例：
+
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+typedef int (*FT) (const void* ,const void*);//style of C++
+ 
+extern "C"{
+    typedef int (*CFT) (const void*,const void*);//style of C
+    void qsort(void* p,size_t n,size_t sz,CFT cmp);//style of C
+}
+ 
+void isort(void* p,size_t n,size_t sz,FT cmp);//style of C++
+void xsort(void* p,size_t n,size_t sz,CFT cmp);//style of C
+ 
+//style of C
+extern "C" void ysort(void* p,size_t n,size_t sz,FT cmp);
+ 
+int compare(const void*,const void*);//style of C++
+extern "C" ccomp(const void*,const void*);//style of C
+ 
+void f(char* v,int sz)
+{
+    //error,as qsort is style of C
+    //but compare is style of C++
+    qsort(v,sz,1,&compare);
+    qsort(v,sz,1,&ccomp);//ok
+     
+    isort(v,sz,1,&compare);//ok
+    //error,as isort is style of C++
+    //but ccomp is style of C
+    isort(v,sz,1,&ccopm);
+}
+注意：typedef int (*FT) (const void* ,const void*)，表示定义了一个函数指针的别名FT，这种函数指针指向的函数有这样的特征：返回值为int型、有两个参数，参数类型可以为任意类型的指针（因为为void*）。
+
+最典型的函数指针的别名的例子是，信号处理函数signal，它的定义如下：
+
+1
+2
+typedef void (*HANDLER)(int);
+HANDLER signal(int ,HANDLER);
+上面的代码定义了信函处理函数signal，它的返回值类型为HANDLER，有两个参数分别为int、HANDLER。 这样避免了要这样定义signal函数：
+
+1
+void (*signal (int ,void(*)(int) ))(int)
+比较之后可以明显的体会到typedef的好处。
